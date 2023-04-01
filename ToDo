@@ -1,0 +1,11 @@
+- [ ] No duplicates
+- [ ] Store email headers
+- [ ] Update Deleted status on emails
+- [ ] Important, categories, header info into the bd
+- [ ] Get emails and deleted emails based on last accessed and store only new ones
+- [ ] OpenAI api access
+- [ ] Embeddings
+- [ ] Based on past usage should an email be deleted or not?
+- [ ] Mark an email as important 
+- [ ] Summarize all new emails based on importance 
+
