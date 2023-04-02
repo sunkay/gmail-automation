@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sunkay11/gmail-automation/internal/credentials"
@@ -36,10 +37,9 @@ func (gc *GmailClient) GetDeletedEmails(daysAgo int) error {
 func getTop5Emails(database db.EmailDB) error {
 	config, err := credentials.GetGmailCredentials()
 	if err != nil {
+		log.Fatalf("Unable to parse client secret file to config: %v", err)
 		return err
 	}
-
-	//client := config.Client(context.Background(), token)
 	client := getClient(config)
 
 	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
@@ -48,17 +48,24 @@ func getTop5Emails(database db.EmailDB) error {
 	}
 
 	user := "me"
-	messages, err := srv.Users.Messages.List(user).MaxResults(5).Do()
+	query := "in:inbox is:unread OR is:read OR is:Deleted"
+	messages, err := srv.Users.Messages.List(user).MaxResults(50).Q(query).Do()
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Top 5 emails:")
-	for _, message := range messages.Messages {
-		msg, err := srv.Users.Messages.Get(user, message.Id).Do()
+	log.Println("Total messages:", len(messages.Messages))
+	for i, message := range messages.Messages {
+		msg, err := srv.Users.Messages.Get(user, message.Id).Fields("labelIds, payload/headers").Do()
 		if err != nil {
-			return err
+			log.Printf("Failed to get message: %v", err)
+			continue
 		}
+
+		// If you need to check specific labels, you can do so using conditional statements.
+		read := isLabelPresent(msg.LabelIds, "UNREAD")
+		deleted := isLabelPresent(msg.LabelIds, "TRASH")
+		labels := strings.Join(msg.LabelIds, ", ")
 
 		headers := make(map[string]string)
 		for _, header := range msg.Payload.Headers {
@@ -74,17 +81,44 @@ func getTop5Emails(database db.EmailDB) error {
 			SentDate: headers["Date"],
 			Body:     msg.Snippet,
 			Sender:   headers["From"],
+			Read:     read,
+			Deleted:  deleted,
+			Labels:   labels,
 		}
 
-		err = database.InsertEmail(&email)
+		email.Id, err = database.InsertEmail(&email)
 		if err != nil {
-			log.Printf("Error inserting email into the database: %v", err)
+			if strings.Contains(err.Error(), "duplicate email detected") {
+				// Update the read status & labels of the existing email if not present
+				// check if email.Id is 0, if so, get the email from the database
+				var emailCopy db.Email
+				if email.Id == 0 {
+					emailCopy, err = database.GetEmail(email.Subject, email.From, email.To, email.SentDate)
+					if err != nil {
+						log.Printf("[%d] Error getting email from the database: %v", i, err)
+						continue
+					}
+					email.Id = emailCopy.Id
+					// continue if labels are already present
+					if strings.Contains(emailCopy.Labels, email.Labels) {
+						continue
+					}
+				}
+				_ = database.UpdateEmailReadStatus(email.Id, email.Read)
+				err = database.UpdateEmailLabels(email.Id, email.Labels)
+				if err != nil {
+					log.Printf("[%d] Error updating read or label status: %v", email.Id, err)
+				} else {
+					log.Printf("[%d] Updated read or labels for duplicate email", email.Id)
+				}
+			} else {
+				log.Printf("[%d] Error inserting email into the database: %v", email.Id, err)
+			}
+			continue
+		} else {
+			log.Printf("[%d] Inserted email into the database [%s]", i, email.Subject)
 		}
-
-		// print the email headers
-		fmt.Printf("Subject: %s, From: %s, Date:%s", headers["Subject"], headers["From"], headers["Date"])
 	}
-
 	return nil
 }
 
@@ -218,10 +252,12 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-/*
-func getGmailService(config *oauth2.Config) (*gmail.Service, error) {
-	client := getClient(config)
-	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
-	return srv, err
+// Helper function to check if a specific label is present in the labelIds list
+func isLabelPresent(labelIds []string, label string) bool {
+	for _, id := range labelIds {
+		if id == label {
+			return true
+		}
+	}
+	return false
 }
-*/

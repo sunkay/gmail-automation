@@ -10,10 +10,12 @@ type Email struct {
 	SentDate  string
 	Body      string
 	Sender    string
+	Read      bool
 	CreatedAt string
 }
 
 type EmailDB interface {
 	InsertEmail(email *Email) error
 	GetEmails() ([]Email, error)
+	UpdateEmailReadStatus(id int64, read bool) error
 }

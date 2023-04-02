@@ -1,5 +1,7 @@
-- [ ] No duplicates
-- [ ] Store email headers
+- [x] No duplicates
+- [x] Store email headers
+- [] Store email information, read
+- [] Store information if the email was deleted
 - [ ] Update Deleted status on emails
 - [ ] Important, categories, header info into the bd
 - [ ] Get emails and deleted emails based on last accessed and store only new ones
