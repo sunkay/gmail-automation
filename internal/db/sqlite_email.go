@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -36,6 +37,8 @@ func (s *SQLiteDB) createTable() {
 		"sentDate" TEXT,
 		"sender" TEXT,
 		"read" BOOLEAN DEFAULT 0,
+		"deleted" BOOLEAN DEFAULT 0,
+		"labels" TEXT,
 		created_at DATETIME
 	);`
 
@@ -52,27 +55,28 @@ func (s *SQLiteDB) createTable() {
 	}
 }
 
-func (s *SQLiteDB) InsertEmail(email *Email) error {
+func (s *SQLiteDB) InsertEmail(email *Email) (int64, error) {
 	query := `INSERT OR IGNORE INTO emails 
-				(subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", created_at) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, datetime('now'))`
+				(subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at) 
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, datetime('now'))`
+
 	result, err := s.DB.Exec(query, email.Subject, email.Body,
 		email.From, email.To, email.Cc,
-		email.Bcc, email.SentDate, email.Sender, email.Read)
+		email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if id == 0 {
-		return fmt.Errorf("duplicate email detected")
+		return 0, fmt.Errorf("duplicate email detected")
 	}
 
-	return nil
+	return id, nil
 }
 
 func (s *SQLiteDB) GetEmails() ([]Email, error) {
@@ -85,6 +89,9 @@ func (s *SQLiteDB) GetEmails() ([]Email, error) {
 				"Bcc", 
 				"sentDate", 
 				"sender", 
+				"read",
+				"deleted",
+				"labels",
 				created_at			
 				FROM emails ORDER BY id DESC LIMIT 50`
 	rows, err := s.DB.Query(query)
@@ -105,10 +112,14 @@ func (s *SQLiteDB) GetEmails() ([]Email, error) {
 			&email.Bcc,
 			&email.SentDate,
 			&email.Sender,
+			&email.Read,
+			&email.Deleted,
+			&email.Labels,
 			&email.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
+
 		emails = append(emails, email)
 	}
 
@@ -119,4 +130,75 @@ func (s *SQLiteDB) UpdateEmailReadStatus(id int64, read bool) error {
 	query := `UPDATE emails SET read = $1 WHERE id = $2`
 	_, err := s.DB.Exec(query, read, id)
 	return err
+}
+
+func (s *SQLiteDB) UpdateEmailLabels(id int64, labels string) error {
+	query := `UPDATE emails SET labels = $1 WHERE id = $2`
+
+	_, err := s.DB.Exec(query, labels, id)
+	return err
+}
+
+func (s *SQLiteDB) GetEmail(subject string, from string, to string, sentDate string) (Email, error) {
+	query := `SELECT id, 
+				"subject", 
+				"from", 
+				"to", 
+				"sentDate",
+				"labels"
+				FROM emails WHERE subject = $1 AND "from" = $2 AND "to" = $3 AND "sentDate" = $4`
+
+	var email Email
+	err := s.DB.QueryRow(query, subject, from, to, sentDate).Scan(&email.Id,
+		&email.Subject,
+		&email.From,
+		&email.To,
+		&email.SentDate,
+		&email.Labels)
+	if err != nil {
+		return email, err
+	}
+
+	return email, nil
+
+}
+
+// implementation of batch InsertEmails
+func (s *SQLiteDB) InsertEmails(emails []Email) ([]int64, error) {
+	query := `INSERT INTO emails (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	// Start a transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	ids := make([]int64, 0, len(emails))
+	for _, email := range emails {
+		result, err := stmt.Exec(email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels, time.Now())
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+
+		id, err := result.LastInsertId()
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+
+		ids = append(ids, id)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return ids, nil
 }

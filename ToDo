@@ -1,8 +1,10 @@
 - [x] No duplicates
 - [x] Store email headers
-- [] Store email information, read
-- [] Store information if the email was deleted
-- [ ] Update Deleted status on emails
+- [x] Store email information, read
+- [x] Update Deleted status on emails
+- [] store labels as a string for later processing
+- [] abstract query to get in:inbox and in:trash emails to store
+- [ ] Store information if the email was deleted
 - [ ] Important, categories, header info into the bd
 - [ ] Get emails and deleted emails based on last accessed and store only new ones
 - [ ] OpenAI api access
@@ -10,4 +12,5 @@
 - [ ] Based on past usage should an email be deleted or not?
 - [ ] Mark an email as important 
 - [ ] Summarize all new emails based on importance 
+- [] Convert date field from text to DATETIME
 

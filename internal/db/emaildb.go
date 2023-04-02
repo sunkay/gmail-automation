@@ -10,12 +10,21 @@ type Email struct {
 	SentDate  string
 	Body      string
 	Sender    string
+	Labels    string
 	Read      bool
+	Deleted   bool
 	CreatedAt string
 }
 
 type EmailDB interface {
-	InsertEmail(email *Email) error
+	InsertEmail(email *Email) (id int64, err error)
 	GetEmails() ([]Email, error)
 	UpdateEmailReadStatus(id int64, read bool) error
+	UpdateEmailLabels(id int64, labels string) error
+	GetEmail(subject string, from string, to string, sentDate string) (Email, error)
+
+	// batch update methods
+	InsertEmails(emails []Email) ([]int64, error)
+	//UpdateEmailReadStatuses(ids []int64, read bool) error
+	//UpdateEmailLabelses(ids []int64, labels string) error
 }
