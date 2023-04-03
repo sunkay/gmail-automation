@@ -26,18 +26,18 @@ func NewGmailClient(emailDB db.EmailDB) *GmailClient {
 	return &GmailClient{emailDB: emailDB}
 }
 
-func (gc *GmailClient) GetTop5Emails() error {
-	return getTop5Emails(gc.emailDB)
+func (gc *GmailClient) GetInboxEmailsAndStore(daysAgo int) error {
+	return getInboxEmailsAndStore(gc.emailDB, daysAgo)
 }
 
-func (gc *GmailClient) GetDeletedEmails(daysAgo int) error {
-	return getDeletedEmails(gc.emailDB, daysAgo)
+func (gc *GmailClient) GetDeletedEmailsAndStore(daysAgo int) error {
+	return getDeletedEmailsAndStore(gc.emailDB, daysAgo)
 }
 
-func getTop5Emails(database db.EmailDB) error {
+// GetInboxEmailsAndStore retrieves all Inbox emails from the specified number of days ago.
+func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 	config, err := credentials.GetGmailCredentials()
 	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
 		return err
 	}
 	client := getClient(config)
@@ -54,18 +54,83 @@ func getTop5Emails(database db.EmailDB) error {
 		return err
 	}
 
-	log.Println("Total messages:", len(messages.Messages))
-	for i, message := range messages.Messages {
+	log.Println("Total Inbox messages  retrieved:", len(messages.Messages))
+
+	inboxEmails := make([]db.Email, 0, len(messages.Messages))
+	for _, message := range messages.Messages {
 		msg, err := srv.Users.Messages.Get(user, message.Id).Fields("labelIds, payload/headers").Do()
 		if err != nil {
 			log.Printf("Failed to get message: %v", err)
 			continue
 		}
 
-		// If you need to check specific labels, you can do so using conditional statements.
+		headers := make(map[string]string)
+		for _, header := range msg.Payload.Headers {
+			headers[header.Name] = header.Value
+		}
+
 		read := isLabelPresent(msg.LabelIds, "UNREAD")
 		deleted := isLabelPresent(msg.LabelIds, "TRASH")
-		labels := strings.Join(msg.LabelIds, ", ")
+
+		email := db.Email{
+			Subject:  headers["Subject"],
+			From:     headers["From"],
+			To:       headers["To"],
+			Cc:       headers["Cc"],
+			Bcc:      headers["Bcc"],
+			SentDate: headers["Date"],
+			Body:     msg.Snippet,
+			Sender:   headers["From"],
+			Read:     read,
+			Deleted:  deleted,
+			Labels:   strings.Join(msg.LabelIds, ", "),
+		}
+
+		inboxEmails = append(inboxEmails, email)
+	}
+
+	ids, err := database.InsertEmails(inboxEmails)
+	if err != nil {
+		log.Printf("Error inserting inbox emails into the database: %v", err)
+		return err
+	}
+
+	log.Printf("Inserted %d inbox emails into the database", len(ids))
+
+	return nil
+}
+
+// GetDeletedEmails retrieves all deleted emails from the specified number of days ago.
+func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
+	config, err := credentials.GetGmailCredentials()
+	if err != nil {
+		return err
+	}
+
+	//client := config.Client(context.Background(), token)
+	client := getClient(config)
+
+	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
+	if err != nil {
+		log.Fatalf("Unable to retrieve Gmail client: %v", err)
+	}
+
+	user := "me"
+	query := fmt.Sprintf("in:trash before:%s", time.Now().AddDate(0, 0, -daysAgo).Format("2006/01/02"))
+	messages, err := srv.Users.Messages.List(user).MaxResults(50).Q(query).Do()
+	if err != nil {
+		return err
+	}
+
+	log.Println("Total Deleted messages:", len(messages.Messages))
+
+	deletedEmails := make([]db.Email, 0, len(messages.Messages))
+	for _, message := range messages.Messages {
+		msg, err := srv.Users.Messages.Get(user, message.Id).Fields("labelIds, payload/headers").Do()
+		if err != nil {
+			log.Printf("Failed to get message: %v", err)
+			continue
+		}
 
 		headers := make(map[string]string)
 		for _, header := range msg.Payload.Headers {
@@ -81,88 +146,22 @@ func getTop5Emails(database db.EmailDB) error {
 			SentDate: headers["Date"],
 			Body:     msg.Snippet,
 			Sender:   headers["From"],
-			Read:     read,
-			Deleted:  deleted,
-			Labels:   labels,
+			Deleted:  true,
+			Labels:   strings.Join(msg.LabelIds, ", "),
 		}
 
-		email.Id, err = database.InsertEmail(&email)
-		if err != nil {
-			if strings.Contains(err.Error(), "duplicate email detected") {
-				// Update the read status & labels of the existing email if not present
-				// check if email.Id is 0, if so, get the email from the database
-				var emailCopy db.Email
-				if email.Id == 0 {
-					emailCopy, err = database.GetEmail(email.Subject, email.From, email.To, email.SentDate)
-					if err != nil {
-						log.Printf("[%d] Error getting email from the database: %v", i, err)
-						continue
-					}
-					email.Id = emailCopy.Id
-					// continue if labels are already present
-					if strings.Contains(emailCopy.Labels, email.Labels) {
-						continue
-					}
-				}
-				_ = database.UpdateEmailReadStatus(email.Id, email.Read)
-				err = database.UpdateEmailLabels(email.Id, email.Labels)
-				if err != nil {
-					log.Printf("[%d] Error updating read or label status: %v", email.Id, err)
-				} else {
-					log.Printf("[%d] Updated read or labels for duplicate email", email.Id)
-				}
-			} else {
-				log.Printf("[%d] Error inserting email into the database: %v", email.Id, err)
-			}
-			continue
-		} else {
-			log.Printf("[%d] Inserted email into the database [%s]", i, email.Subject)
-		}
+		deletedEmails = append(deletedEmails, email)
 	}
-	return nil
-}
 
-// GetDeletedEmails retrieves all deleted emails from the specified number of days ago.
-func getDeletedEmails(db db.EmailDB, daysAgo int) error {
-	config, err := credentials.GetGmailCredentials()
+	ids, err := database.InsertDeletedEmails(deletedEmails)
 	if err != nil {
+		log.Printf("Error inserting deleted emails into the database: %v", err)
 		return err
 	}
 
-	//client := config.Client(context.Background(), token)
-	client := getClient(config)
-
-	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
-	if err != nil {
-		log.Fatalf("Unable to retrieve Gmail client: %v", err)
-	}
-
-	user := "me"
-	q := fmt.Sprintf("in:trash before:%s", time.Now().AddDate(0, 0, -daysAgo).Format("2006/01/02"))
-	messages, err := srv.Users.Messages.List(user).Q(q).Fields("messages(id,payload/headers)").Do()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Deleted emails:")
-	for _, message := range messages.Messages {
-		msg, err := srv.Users.Messages.Get(user, message.Id).Format("full").Fields("payload/headers").Do()
-		if err != nil {
-			return err
-		}
-		fmt.Println("Subject:", getHeader("Subject", msg.Payload.Headers))
-	}
+	log.Printf("Inserted %d deleted emails into the database", len(ids))
 
 	return nil
-}
-
-func getHeader(name string, headers []*gmail.MessagePartHeader) string {
-	for _, header := range headers {
-		if header.Name == name {
-			return header.Value
-		}
-	}
-	return ""
 }
 
 func getTokenFromFile(filename string) (*oauth2.Token, error) {

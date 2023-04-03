@@ -11,7 +11,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: gmail-automation top5 deleted getStored")
+		fmt.Println("Usage: gmail-automation top5 storeDeleted getStored")
 		os.Exit(1)
 	}
 
@@ -23,14 +23,14 @@ func main() {
 	gmailClient := gmailapi.NewGmailClient(emailDB)
 
 	switch command {
-	case "top5":
-		err := gmailClient.GetTop5Emails()
+	case "storeInbox":
+		err := gmailClient.GetInboxEmailsAndStore(1)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
 		}
-	case "deleted":
-		err := gmailClient.GetDeletedEmails(1)
+	case "storeDeleted":
+		err := gmailClient.GetDeletedEmailsAndStore(1)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)

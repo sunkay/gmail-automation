@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -39,7 +39,8 @@ func (s *SQLiteDB) createTable() {
 		"read" BOOLEAN DEFAULT 0,
 		"deleted" BOOLEAN DEFAULT 0,
 		"labels" TEXT,
-		created_at DATETIME
+		created_at DATETIME,
+		UNIQUE(subject, "from", "to", "sentDate")
 	);`
 
 	_, err := s.DB.Exec(query)
@@ -47,16 +48,33 @@ func (s *SQLiteDB) createTable() {
 		log.Fatal("Failed to create table:", err)
 	}
 
-	// Create a unique index on subject, from, and to and sentDate columns
-	indexQuery := `CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_from_to_sentdate ON emails (subject, "from", "to", "sentDate");`
-	_, err = s.DB.Exec(indexQuery)
+	// create the deleted_emails table
+	deletedQuery := `CREATE TABLE IF NOT EXISTS deleted_emails (
+		id INTEGER PRIMARY KEY,
+		"subject" TEXT,
+		"body" TEXT,
+		"from" TEXT,
+		"to"	TEXT,
+		"Cc" TEXT,
+		"Bcc" TEXT,
+		"sentDate" TEXT,
+		"sender" TEXT,
+		"read" BOOLEAN DEFAULT 0,
+		"deleted" BOOLEAN DEFAULT 0,
+		"labels" TEXT,
+		created_at DATETIME,
+		UNIQUE(subject, "from", "to", "sentDate")
+	);`
+
+	_, err = s.DB.Exec(deletedQuery)
 	if err != nil {
-		log.Fatal("Failed to create unique index:", err)
+		log.Fatal("Failed to create table:", err)
 	}
+
 }
 
 func (s *SQLiteDB) InsertEmail(email *Email) (int64, error) {
-	query := `INSERT OR IGNORE INTO emails 
+	query := `INSERT OR REPLACE INTO emails 
 				(subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at) 
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, datetime('now'))`
 
@@ -77,6 +95,95 @@ func (s *SQLiteDB) InsertEmail(email *Email) (int64, error) {
 	}
 
 	return id, nil
+}
+
+// implementation of batch InsertEmails
+func (s *SQLiteDB) InsertEmails(emails []Email) ([]int64, error) {
+	baseQuery := `INSERT OR REPLACE INTO emails 
+                (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at)
+                VALUES `
+	valueStrings := []string{}
+	valueArgs := []interface{}{}
+
+	for _, email := range emails {
+		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
+	}
+
+	query := baseQuery + strings.Join(valueStrings, ",")
+
+	// Start a transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		log.Printf("Failed to start transaction: %v", err)
+		return nil, err
+	}
+
+	result, err := tx.Exec(query, valueArgs...)
+	if err != nil {
+		log.Printf("Failed to execute query: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get rows affected: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	return []int64{rowsAffected}, nil
+}
+
+func (s *SQLiteDB) InsertDeletedEmails(emails []Email) ([]int64, error) {
+	baseQuery := `INSERT OR REPLACE INTO deleted_emails 
+                (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at)
+                VALUES `
+	valueStrings := []string{}
+	valueArgs := []interface{}{}
+
+	for _, email := range emails {
+		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
+	}
+
+	query := baseQuery + strings.Join(valueStrings, ",")
+
+	// Start a transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		log.Printf("Failed to start transaction: %v", err)
+		return nil, err
+	}
+
+	result, err := tx.Exec(query, valueArgs...)
+	if err != nil {
+		log.Printf("Failed to execute query: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get rows affected: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		tx.Rollback()
+		return nil, err
+	}
+
+	return []int64{rowsAffected}, nil
 }
 
 func (s *SQLiteDB) GetEmails() ([]Email, error) {
@@ -161,44 +268,4 @@ func (s *SQLiteDB) GetEmail(subject string, from string, to string, sentDate str
 
 	return email, nil
 
-}
-
-// implementation of batch InsertEmails
-func (s *SQLiteDB) InsertEmails(emails []Email) ([]int64, error) {
-	query := `INSERT INTO emails (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	// Start a transaction
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return nil, err
-	}
-
-	stmt, err := tx.Prepare(query)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	ids := make([]int64, 0, len(emails))
-	for _, email := range emails {
-		result, err := stmt.Exec(email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels, time.Now())
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
-		id, err := result.LastInsertId()
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	return ids, nil
 }

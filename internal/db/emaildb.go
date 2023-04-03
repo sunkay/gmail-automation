@@ -27,4 +27,8 @@ type EmailDB interface {
 	InsertEmails(emails []Email) ([]int64, error)
 	//UpdateEmailReadStatuses(ids []int64, read bool) error
 	//UpdateEmailLabelses(ids []int64, labels string) error
+
+	InsertDeletedEmails(emails []Email) ([]int64, error)
+	//GetDeletedEmails() ([]Email, error)
+	//GetDeletedEmail(subject string, from string, to string, sentDate string) (Email, error)
 }
