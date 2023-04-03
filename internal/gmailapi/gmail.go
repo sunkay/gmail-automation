@@ -72,6 +72,14 @@ func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 		read := isLabelPresent(msg.LabelIds, "UNREAD")
 		deleted := isLabelPresent(msg.LabelIds, "TRASH")
 
+		// Get the labels for the message
+		labels := strings.Join(msg.LabelIds, ", ")
+
+		// Add the "IMPORTANT" label if the message is important
+		if isMessageImportant(msg) {
+			labels += ",IMPORTANT"
+		}
+
 		email := db.Email{
 			Subject:  headers["Subject"],
 			From:     headers["From"],
@@ -83,7 +91,7 @@ func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 			Sender:   headers["From"],
 			Read:     read,
 			Deleted:  deleted,
-			Labels:   strings.Join(msg.LabelIds, ", "),
+			Labels:   labels,
 		}
 
 		inboxEmails = append(inboxEmails, email)
@@ -255,6 +263,16 @@ func saveToken(path string, token *oauth2.Token) {
 func isLabelPresent(labelIds []string, label string) bool {
 	for _, id := range labelIds {
 		if id == label {
+			return true
+		}
+	}
+	return false
+}
+
+func isMessageImportant(msg *gmail.Message) bool {
+	//check wether the message is important or not
+	for _, header := range msg.Payload.Headers {
+		if header.Name == "Importance" && header.Value == "high" {
 			return true
 		}
 	}
