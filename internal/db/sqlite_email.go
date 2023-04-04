@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -78,9 +79,15 @@ func (s *SQLiteDB) InsertEmail(email *Email) (int64, error) {
 				(subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at) 
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, datetime('now'))`
 
+	convertedDate, err := parseSentDate(email.SentDate)
+	if err != nil {
+		// Handle the error, e.g., skip the email or log the issue
+		return 0, err
+	}
+
 	result, err := s.DB.Exec(query, email.Subject, email.Body,
 		email.From, email.To, email.Cc,
-		email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
+		email.Bcc, convertedDate, email.Sender, email.Read, email.Deleted, email.Labels)
 	if err != nil {
 		return 0, err
 	}
@@ -106,8 +113,14 @@ func (s *SQLiteDB) InsertEmails(emails []Email) (int64, error) {
 	valueArgs := []interface{}{}
 
 	for _, email := range emails {
+		convertedDate, err := parseSentDate(email.SentDate)
+		if err != nil {
+			log.Printf("Failed to parse sent date: %v", err)
+			continue
+		}
+
 		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
-		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
+		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, convertedDate, email.Sender, email.Read, email.Deleted, email.Labels)
 	}
 
 	query := baseQuery + strings.Join(valueStrings, ",")
@@ -132,7 +145,6 @@ func (s *SQLiteDB) InsertEmails(emails []Email) (int64, error) {
 		tx.Rollback()
 		return 0, err
 	}
-	log.Printf("Rows affected: %d", rowsAffected)
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
@@ -151,8 +163,14 @@ func (s *SQLiteDB) InsertDeletedEmails(emails []Email) (int64, error) {
 	valueArgs := []interface{}{}
 
 	for _, email := range emails {
+		convertedDate, err := parseSentDate(email.SentDate)
+		if err != nil {
+			log.Printf("Failed to parse sent date: %v", err)
+			continue
+		}
+
 		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
-		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, email.SentDate, email.Sender, email.Read, email.Deleted, email.Labels)
+		valueArgs = append(valueArgs, email.Subject, email.Body, email.From, email.To, email.Cc, email.Bcc, convertedDate, email.Sender, email.Read, email.Deleted, email.Labels)
 	}
 
 	query := baseQuery + strings.Join(valueStrings, ",")
@@ -270,4 +288,36 @@ func (s *SQLiteDB) GetEmail(tableName string, subject string, from string, to st
 
 	return email, nil
 
+}
+
+func parseSentDate(dateStr string) (string, error) {
+	formats := []string{
+		"Mon, 02 Jan 2006 15:04:05 -0700",
+		"Mon, 02 Jan 2006 15:04:05 -0700 (MST)",
+		"Sat, 1 Apr 2023 12:37:18 +0000",
+		"Mon, 03 Apr 2023 18:15:16 +0000 (UTC)",
+		"3 Apr 2023 01:14:34 -0500",
+		"Mon, 2 Jan 2006 15:04:05 -0700",
+		"Tue, 4 Apr 2023 00:17:49 +0000 (UTC)",
+		"Tue, 4 Apr 2023 00:17:49 +0000 (UTC)",
+		"Mon, 3 Apr 2023 12:17:07 -0400 (EDT)",
+		"Mon, 2 Jan 2006 15:04:05 -0700",       // Single-digit day without timezone abbreviation
+		"Mon, 2 Jan 2006 15:04:05 -0700 (MST)", // Single-digit day with timezone abbreviation
+	}
+
+	var t time.Time
+	var err error
+
+	for _, format := range formats {
+		t, err = time.Parse(format, dateStr)
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("unable to parse date string: %s", dateStr)
+	}
+
+	return t.Format("2006-01-02 15:04:05"), nil
 }

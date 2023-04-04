@@ -1,0 +1,13 @@
+**Email Efficiency Enhancer**
+
+Email Efficiency Enhancer is an intelligent solution designed to help users gain control over their email experience by automatically fetching, categorizing, and analyzing emails. Leveraging OpenAI's GPT technology, it suggests actions, takes actions, and summarizes emails to improve productivity and organization. The project aims to enhance email management by learning from historical data, making it an indispensable tool for busy professionals.
+
+**Features**
+
+**Intelligent Email Fetching and Storage:** Automatically fetch emails from Gmail and store them efficiently, without duplicates. Track email history and update deleted status.
+**PostgreSQL Integration:** Seamlessly manage emails using a robust PostgreSQL implementation, ensuring a solid database layer and proper fetch/store functionality.
+**HistoryID Tracking:** Utilize historyID to fetch only new emails since the last fetch and maintain an up-to-date email database.
+**OpenAI GPT-Powered Analysis:** Harness the power of OpenAI GPT to classify, delete, and summarize emails based on historical data and importance, streamlining your email experience.
+Smart Email Summarization: Automatically summarize all new emails based on importance, providing a quick overview of relevant topics for later review.
+**Email Action Suggestions:** Learn from historical email data to suggest actions such as marking an email as important, deleting it, or taking other suitable actions.
+Remember, this project is focused on enhancing your email experience and helping you become more efficient in managing

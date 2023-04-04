@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/sunkay11/gmail-automation/internal/config"
 	"github.com/sunkay11/gmail-automation/internal/db"
 	"github.com/sunkay11/gmail-automation/internal/gmailapi"
 )
@@ -14,6 +15,11 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("storeInbox --numEmails <number of emails to store> storeDeleted getStored")
 		os.Exit(1)
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// Extract the command from os.Args
@@ -26,13 +32,13 @@ func main() {
 	numEmails := cmdFlags.Int("numEmails", 50, "Number of emails to store")
 
 	// Parse the flags
-	err := cmdFlags.Parse(os.Args[2:])
+	err = cmdFlags.Parse(os.Args[2:])
 	if err != nil {
 		fmt.Println("Error parsing flags:", err)
 		os.Exit(1)
 	}
 
-	emailDB := db.NewSQLiteDB("./emails.sqlite")
+	emailDB := db.NewSQLiteDB(cfg.DB.Path)
 	// Create a new GmailClient instance
 	gmailClient := gmailapi.NewGmailClient(emailDB)
 

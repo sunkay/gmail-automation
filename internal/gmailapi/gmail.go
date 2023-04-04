@@ -69,7 +69,7 @@ func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 			headers[header.Name] = header.Value
 		}
 
-		log.Println("Subject = ", headers["Subject"])
+		log.Printf("Subject = %s, SentDate = %s", headers["Subject"], headers["Date"])
 
 		read := isLabelPresent(msg.LabelIds, "UNREAD")
 		deleted := isLabelPresent(msg.LabelIds, "TRASH")
@@ -146,6 +146,8 @@ func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
 		for _, header := range msg.Payload.Headers {
 			headers[header.Name] = header.Value
 		}
+
+		log.Printf("Subject = %s, SentDate = %s", headers["Subject"], headers["Date"])
 
 		email := db.Email{
 			Subject:  headers["Subject"],

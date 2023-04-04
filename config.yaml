@@ -1,0 +1,9 @@
+openai:
+  api_key: ${OPEN_AI_API_KEY}
+
+gmail:
+  client_secret_path: ./client_secret.json
+  token_path: ./token.json
+
+db:
+  path: ./emails.sqlite

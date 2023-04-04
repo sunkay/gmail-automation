@@ -1,16 +1,37 @@
+Fetching emails from Gmail and store them in the DB
 - [x] No duplicates
 - [x] Store email headers
 - [x] Store email information, read
 - [x] Update Deleted status on emails
-- [] store labels as a string for later processing
-- [] abstract query to get in:inbox and in:trash emails to store
-- [ ] Store information if the email was deleted
-- [ ] Important, categories, header info into the bd
+- [x] Not needed Store information if the email was deleted
+- [X] Important, categories, header info into the bd
 - [ ] Get emails and deleted emails based on last accessed and store only new ones
-- [ ] OpenAI api access
-- [ ] Embeddings
+
+PostgreSQL
+- [ ] Create Postgres implementation
+- [ ] Test DB layer
+- [ ] Test fetch and store is working properly
+
+HistoryID changes
+- [ ] Use historyId to fetch only new emails since last fetch
+- [ ] Test historyId based fetch and store
+
+OpenAI GPT 
+- [ ] Go OpenAI api access
+- [ ] Using historical email data, classify which email has the highest chance of being deleted
+- [ ] Using historical email data, classify which email has the highest chance of being read
+- [ ] Use Embeddings
 - [ ] Based on past usage should an email be deleted or not?
 - [ ] Mark an email as important 
 - [ ] Summarize all new emails based on importance 
-- [] Convert date field from text to DATETIME
+- [NO] Convert date field from text to DATETIME
+- [NiceToHave] abstract query to get in:inbox and in:trash emails to store
+- [X] store labels as a string for later processing
 
+SQL:
+
+To fetch emails from your SQLite database within one hour of a specified time, you can use the following SQL query:
+SELECT * 
+FROM emails 
+WHERE datetime(substr(sentDate, 6, 11) || ' ' || substr(sentDate, 18, 8), substr(sentDate, 27, 6) || ' minutes') >= 'specified_datetime' 
+  AND datetime(substr(sentDate, 6, 11) || ' ' || substr(sentDate, 18, 8), substr(sentDate, 27, 6) || ' minutes') < datetime('specified_datetime', '+1 hour');
