@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,20 +12,33 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: gmail-automation top5 storeDeleted getStored")
+		fmt.Println("storeInbox --numEmails <number of emails to store> storeDeleted getStored")
 		os.Exit(1)
 	}
 
+	// Extract the command from os.Args
 	command := os.Args[1]
 
-	emailDB := db.NewSQLiteDB()
+	// Create a new flag set for the command
+	cmdFlags := flag.NewFlagSet("command", flag.ExitOnError)
 
+	// Add the flag definition here
+	numEmails := cmdFlags.Int("numEmails", 50, "Number of emails to store")
+
+	// Parse the flags
+	err := cmdFlags.Parse(os.Args[2:])
+	if err != nil {
+		fmt.Println("Error parsing flags:", err)
+		os.Exit(1)
+	}
+
+	emailDB := db.NewSQLiteDB("./emails.sqlite")
 	// Create a new GmailClient instance
 	gmailClient := gmailapi.NewGmailClient(emailDB)
 
 	switch command {
 	case "storeInbox":
-		err := gmailClient.GetInboxEmailsAndStore(1)
+		err := gmailClient.GetInboxEmailsAndStore(*numEmails)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
@@ -36,7 +50,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "getStored":
-		emails, err := emailDB.GetEmails()
+		emails, err := emailDB.GetEmails("emails")
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -45,7 +59,7 @@ func main() {
 			fmt.Printf("[%d], [%s], [%s], [%s]\n", i, email.From, email.Subject, email.SentDate)
 		}
 	default:
-		fmt.Println("Unknown command:", command)
+		fmt.Println("Unknown command:", os.Args[1])
 		os.Exit(1)
 	}
 }

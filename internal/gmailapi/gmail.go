@@ -35,7 +35,7 @@ func (gc *GmailClient) GetDeletedEmailsAndStore(daysAgo int) error {
 }
 
 // GetInboxEmailsAndStore retrieves all Inbox emails from the specified number of days ago.
-func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
+func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 	config, err := credentials.GetGmailCredentials()
 	if err != nil {
 		return err
@@ -49,7 +49,7 @@ func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 
 	user := "me"
 	query := "in:inbox is:unread OR is:read OR is:Deleted"
-	messages, err := srv.Users.Messages.List(user).MaxResults(50).Q(query).Do()
+	messages, err := srv.Users.Messages.List(user).MaxResults(int64(numEmails)).Q(query).Do()
 	if err != nil {
 		return err
 	}
@@ -68,6 +68,8 @@ func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 		for _, header := range msg.Payload.Headers {
 			headers[header.Name] = header.Value
 		}
+
+		log.Println("Subject = ", headers["Subject"])
 
 		read := isLabelPresent(msg.LabelIds, "UNREAD")
 		deleted := isLabelPresent(msg.LabelIds, "TRASH")
@@ -97,13 +99,13 @@ func getInboxEmailsAndStore(database db.EmailDB, daysAgo int) error {
 		inboxEmails = append(inboxEmails, email)
 	}
 
-	ids, err := database.InsertEmails(inboxEmails)
+	rowsAffected, err := database.InsertEmails(inboxEmails)
 	if err != nil {
 		log.Printf("Error inserting inbox emails into the database: %v", err)
 		return err
 	}
 
-	log.Printf("Inserted %d inbox emails into the database", len(ids))
+	log.Printf("Inserted %d inbox emails into the database", rowsAffected)
 
 	return nil
 }
@@ -167,7 +169,7 @@ func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
 		return err
 	}
 
-	log.Printf("Inserted %d deleted emails into the database", len(ids))
+	log.Printf("Inserted %d deleted emails into the database", ids)
 
 	return nil
 }

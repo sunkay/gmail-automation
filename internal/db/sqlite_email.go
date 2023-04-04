@@ -13,8 +13,8 @@ type SQLiteDB struct {
 	DB *sql.DB
 }
 
-func NewSQLiteDB() *SQLiteDB {
-	db, err := sql.Open("sqlite3", "./emails.sqlite")
+func NewSQLiteDB(filename string) *SQLiteDB {
+	db, err := sql.Open("sqlite3", filename)
 	if err != nil {
 		log.Fatal("Failed to open database:", err)
 	}
@@ -98,7 +98,7 @@ func (s *SQLiteDB) InsertEmail(email *Email) (int64, error) {
 }
 
 // implementation of batch InsertEmails
-func (s *SQLiteDB) InsertEmails(emails []Email) ([]int64, error) {
+func (s *SQLiteDB) InsertEmails(emails []Email) (int64, error) {
 	baseQuery := `INSERT OR REPLACE INTO emails 
                 (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at)
                 VALUES `
@@ -116,33 +116,34 @@ func (s *SQLiteDB) InsertEmails(emails []Email) ([]int64, error) {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		log.Printf("Failed to start transaction: %v", err)
-		return nil, err
+		return 0, err
 	}
 
 	result, err := tx.Exec(query, valueArgs...)
 	if err != nil {
 		log.Printf("Failed to execute query: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		log.Printf("Failed to get rows affected: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
+	log.Printf("Rows affected: %d", rowsAffected)
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
 
-	return []int64{rowsAffected}, nil
+	return rowsAffected, nil
 }
 
-func (s *SQLiteDB) InsertDeletedEmails(emails []Email) ([]int64, error) {
+func (s *SQLiteDB) InsertDeletedEmails(emails []Email) (int64, error) {
 	baseQuery := `INSERT OR REPLACE INTO deleted_emails 
                 (subject, body, "from", "to", "Cc", "Bcc", "sentDate", "sender", "read", "deleted", "labels", created_at)
                 VALUES `
@@ -160,47 +161,48 @@ func (s *SQLiteDB) InsertDeletedEmails(emails []Email) ([]int64, error) {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		log.Printf("Failed to start transaction: %v", err)
-		return nil, err
+		return 0, err
 	}
 
 	result, err := tx.Exec(query, valueArgs...)
 	if err != nil {
 		log.Printf("Failed to execute query: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		log.Printf("Failed to get rows affected: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
 		tx.Rollback()
-		return nil, err
+		return 0, err
 	}
 
-	return []int64{rowsAffected}, nil
+	return rowsAffected, nil
 }
 
-func (s *SQLiteDB) GetEmails() ([]Email, error) {
-	query := `SELECT id, 
-				"subject", 
-				"body",
-				"from", 
-				"to", 
-				"Cc", 
-				"Bcc", 
-				"sentDate", 
-				"sender", 
-				"read",
-				"deleted",
-				"labels",
-				created_at			
-				FROM emails ORDER BY id DESC LIMIT 50`
+func (s *SQLiteDB) GetEmails(tableName string) ([]Email, error) {
+	query := fmt.Sprintf(`SELECT id, 
+	"subject", 
+	"body",
+	"from", 
+	"to", 
+	"Cc", 
+	"Bcc", 
+	"sentDate", 
+	"sender", 
+	"read",
+	"deleted",
+	"labels",
+	created_at			
+	FROM %s ORDER BY id DESC LIMIT 50`, tableName)
+
 	rows, err := s.DB.Query(query)
 	if err != nil {
 		return nil, err
@@ -246,14 +248,14 @@ func (s *SQLiteDB) UpdateEmailLabels(id int64, labels string) error {
 	return err
 }
 
-func (s *SQLiteDB) GetEmail(subject string, from string, to string, sentDate string) (Email, error) {
+func (s *SQLiteDB) GetEmail(tableName string, subject string, from string, to string, sentDate string) (Email, error) {
 	query := `SELECT id, 
 				"subject", 
 				"from", 
 				"to", 
 				"sentDate",
 				"labels"
-				FROM emails WHERE subject = $1 AND "from" = $2 AND "to" = $3 AND "sentDate" = $4`
+				FROM emails WHERE subject = $1 AND "from" = $2 AND "to" = $3 AND "sentDate" = $4 ORDER BY created_at DESC`
 
 	var email Email
 	err := s.DB.QueryRow(query, subject, from, to, sentDate).Scan(&email.Id,
