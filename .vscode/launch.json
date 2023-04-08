@@ -11,7 +11,8 @@
             "request": "launch",
             "mode": "auto",
             "program": "cmd/main.go",
-            "args": ["storeInbox", "--numEmails", "1"],
+           // "args": ["storeInbox", "--numEmails", "1"],
+           "args": ["classifyEmail"],
             "cwd": "${workspaceFolder}",
         }
     

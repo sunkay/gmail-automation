@@ -9,6 +9,7 @@ import (
 	"github.com/sunkay11/gmail-automation/internal/config"
 	"github.com/sunkay11/gmail-automation/internal/db"
 	"github.com/sunkay11/gmail-automation/internal/gmailapi"
+	"github.com/sunkay11/gmail-automation/internal/openai"
 )
 
 func main() {
@@ -37,10 +38,10 @@ func main() {
 		fmt.Println("Error parsing flags:", err)
 		os.Exit(1)
 	}
-
 	emailDB := db.NewSQLiteDB(cfg.DB.Path)
+
 	// Create a new GmailClient instance
-	gmailClient := gmailapi.NewGmailClient(emailDB)
+	gmailClient := gmailapi.NewGmailClient(emailDB, cfg.Gmail.Labels)
 
 	switch command {
 	case "storeInbox":
@@ -64,6 +65,23 @@ func main() {
 		for i, email := range emails {
 			fmt.Printf("[%d], [%s], [%s], [%s]\n", i, email.From, email.Subject, email.SentDate)
 		}
+	case "classifyEmail":
+		testEmail := db.Email{
+			Subject: "Why don’t we screen healthy people to catch diseases early?",
+			From:    "sunkay.subscriptions@gmail.com",
+			To:      "Nikhil Krishnan from OutOfPocket <nikhil@outofpocket.health>",
+			Labels:  "UNREAD, CATEGORY_UPDATES, INBOX",
+		}
+		log.Println("Model:", cfg.OpenAI.Model)
+		gpt3 := openai.NewGPT3Classifier(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+		prompt := gpt3.GenerateContextualPrompt(testEmail)
+		fmt.Println(prompt)
+		result, err := gpt3.ClassifyEmail(prompt)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		fmt.Println(result)
 	default:
 		fmt.Println("Unknown command:", os.Args[1])
 		os.Exit(1)

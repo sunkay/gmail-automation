@@ -1,9 +1,12 @@
 openai:
   api_key: ${OPEN_AI_API_KEY}
+  model: "text-davinci-003"
+  prompt: "This is not used atm, but will be used in the future."
 
 gmail:
   client_secret_path: ./client_secret.json
   token_path: ./token.json
+  labels: ["INBOX", "TRASH", "SPAM", "SENT", "DRAFT", "IMPORTANT", "STARRED", "ARCHIVED", "READ", "UNREAD"]
 
 db:
   path: ./emails.sqlite

@@ -2,6 +2,12 @@
 
 Email Efficiency Enhancer is an intelligent solution designed to help users gain control over their email experience by automatically fetching, categorizing, and analyzing emails. Leveraging OpenAI's GPT technology, it suggests actions, takes actions, and summarizes emails to improve productivity and organization. The project aims to enhance email management by learning from historical data, making it an indispensable tool for busy professionals.
 
+**Use**
+ go build -o gmail-automation cmd/main.go
+ ./gmail-automation storeInbox --numEmails 100
+ ./gmail-automation storeDeleted
+ python create_finetune_csv.py
+
 **Features**
 
 **Intelligent Email Fetching and Storage:** Automatically fetch emails from Gmail and store them efficiently, without duplicates. Track email history and update deleted status.

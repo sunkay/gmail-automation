@@ -13,11 +13,14 @@ import (
 type Config struct {
 	OpenAI struct {
 		APIKey string `yaml:"api_key"`
+		Model  string `yaml:"model"`
+		Prompt string `yaml:"prompt"`
 	} `yaml:"openai"`
 
 	Gmail struct {
-		ClientSecretPath string `yaml:"client_secret_path"`
-		TokenPath        string `yaml:"token_path"`
+		ClientSecretPath string   `yaml:"client_secret_path"`
+		TokenPath        string   `yaml:"token_path"`
+		Labels           []string `yaml:"labels"`
 	} `yaml:"gmail"`
 
 	DB struct {

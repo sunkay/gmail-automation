@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,28 +20,29 @@ import (
 )
 
 type GmailClient struct {
-	emailDB db.EmailDB
+	emailDB          db.EmailDB
+	labelsThatMatter []string
 }
 
-func NewGmailClient(emailDB db.EmailDB) *GmailClient {
-	return &GmailClient{emailDB: emailDB}
+func NewGmailClient(emailDB db.EmailDB, labels []string) *GmailClient {
+	return &GmailClient{emailDB: emailDB, labelsThatMatter: labels}
 }
 
-func (gc *GmailClient) GetInboxEmailsAndStore(daysAgo int) error {
-	return getInboxEmailsAndStore(gc.emailDB, daysAgo)
+func (gc *GmailClient) GetInboxEmailsAndStore(numEmails int) error {
+	return getInboxEmailsAndStore(gc.emailDB, numEmails, gc.labelsThatMatter)
 }
 
 func (gc *GmailClient) GetDeletedEmailsAndStore(daysAgo int) error {
-	return getDeletedEmailsAndStore(gc.emailDB, daysAgo)
+	return getDeletedEmailsAndStore(gc.emailDB, daysAgo, gc.labelsThatMatter)
 }
 
 // GetInboxEmailsAndStore retrieves all Inbox emails from the specified number of days ago.
-func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
-	config, err := credentials.GetGmailCredentials()
+func getInboxEmailsAndStore(database db.EmailDB, numEmails int, labelsThatMatter []string) error {
+	oauth2Config, err := credentials.GetGmailCredentials()
 	if err != nil {
 		return err
 	}
-	client := getClient(config)
+	client := getClient(oauth2Config)
 
 	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
 	if err != nil {
@@ -48,13 +50,15 @@ func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 	}
 
 	user := "me"
-	query := "in:inbox is:unread OR is:read OR is:Deleted"
+	//query := "(in:inbox OR (in:trash )) is:unread OR is:read OR is:Deleted"
+	query := fmt.Sprintf("in:inbox OR (in:trash before:%s) is:unread OR is:read OR is:Deleted", time.Now().AddDate(0, 0, -1).Format("2006/01/02"))
 	messages, err := srv.Users.Messages.List(user).MaxResults(int64(numEmails)).Q(query).Do()
 	if err != nil {
 		return err
 	}
 
 	log.Println("Total Inbox messages  retrieved:", len(messages.Messages))
+	log.Println("Labels that matter:", labelsThatMatter)
 
 	inboxEmails := make([]db.Email, 0, len(messages.Messages))
 	for _, message := range messages.Messages {
@@ -69,16 +73,24 @@ func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 			headers[header.Name] = header.Value
 		}
 
-		log.Printf("Subject = %s, SentDate = %s", headers["Subject"], headers["Date"])
+		// Filter the labels based on labelsThatMatter
+		filteredLabelIds := filterLabels(msg.LabelIds, labelsThatMatter)
 
-		read := isLabelPresent(msg.LabelIds, "UNREAD")
+		unread := isLabelPresent(msg.LabelIds, "UNREAD")
 		deleted := isLabelPresent(msg.LabelIds, "TRASH")
 
-		// Get the labels for the message
-		labels := strings.Join(msg.LabelIds, ", ")
+		if !unread {
+			filteredLabelIds = append(filteredLabelIds, "READ")
+		}
+
+		// Get the labels for the message and sort them
+		sort.Strings(filteredLabelIds)
+		labels := strings.Join(filteredLabelIds, ", ")
+
+		log.Printf("Subject = %s, labelsOLD = %s, filteredLabels = %s", headers["Subject"], msg.LabelIds, labels)
 
 		// Add the "IMPORTANT" label if the message is important
-		if isMessageImportant(msg) {
+		if isMessageImportant(msg) && containsString(labelsThatMatter, "IMPORTANT") {
 			labels += ",IMPORTANT"
 		}
 
@@ -91,7 +103,7 @@ func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 			SentDate: headers["Date"],
 			Body:     msg.Snippet,
 			Sender:   headers["From"],
-			Read:     read,
+			Read:     unread,
 			Deleted:  deleted,
 			Labels:   labels,
 		}
@@ -111,7 +123,7 @@ func getInboxEmailsAndStore(database db.EmailDB, numEmails int) error {
 }
 
 // GetDeletedEmails retrieves all deleted emails from the specified number of days ago.
-func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
+func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int, labelsThatMatter []string) error {
 	config, err := credentials.GetGmailCredentials()
 	if err != nil {
 		return err
@@ -147,7 +159,25 @@ func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
 			headers[header.Name] = header.Value
 		}
 
-		log.Printf("Subject = %s, SentDate = %s", headers["Subject"], headers["Date"])
+		// Filter the labels based on labelsThatMatter
+		filteredLabelIds := filterLabels(msg.LabelIds, labelsThatMatter)
+
+		unread := isLabelPresent(msg.LabelIds, "UNREAD")
+
+		if !unread {
+			filteredLabelIds = append(filteredLabelIds, "READ")
+		}
+
+		// Get the labels for the message and sort them
+		sort.Strings(filteredLabelIds)
+		labels := strings.Join(filteredLabelIds, ", ")
+
+		log.Printf("Subject = %s, labelsOLD = %s, filteredLabels = %s", headers["Subject"], msg.LabelIds, labels)
+
+		// Add the "IMPORTANT" label if the message is important
+		if isMessageImportant(msg) && containsString(labelsThatMatter, "IMPORTANT") {
+			labels += ",IMPORTANT"
+		}
 
 		email := db.Email{
 			Subject:  headers["Subject"],
@@ -159,7 +189,7 @@ func getDeletedEmailsAndStore(database db.EmailDB, daysAgo int) error {
 			Body:     msg.Snippet,
 			Sender:   headers["From"],
 			Deleted:  true,
-			Labels:   strings.Join(msg.LabelIds, ", "),
+			Labels:   labels,
 		}
 
 		deletedEmails = append(deletedEmails, email)
@@ -277,6 +307,27 @@ func isMessageImportant(msg *gmail.Message) bool {
 	//check wether the message is important or not
 	for _, header := range msg.Payload.Headers {
 		if header.Name == "Importance" && header.Value == "high" {
+			return true
+		}
+	}
+	return false
+}
+
+func filterLabels(labels []string, labelsThatMatter []string) []string {
+	filteredLabels := make([]string, 0)
+	for _, label := range labels {
+		for _, importantLabel := range labelsThatMatter {
+			if label == importantLabel {
+				filteredLabels = append(filteredLabels, label)
+			}
+		}
+	}
+	return filteredLabels
+}
+
+func containsString(slice []string, item string) bool {
+	for _, str := range slice {
+		if str == item {
 			return true
 		}
 	}
